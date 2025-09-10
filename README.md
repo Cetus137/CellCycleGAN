@@ -5,8 +5,8 @@ This project implements a CycleGAN model for generating fluorescent microscopy i
 ## Overview
 
 CycleGAN (Cycle-Consistent Adversarial Networks) enables unpaired image-to-image translation. In this implementation:
-- **Domain A**: Synthetic masks/segmentation images
-- **Domain B**: Real fluorescent microscopy images
+- **Domain A**: Single-channel synthetic masks/segmentation images
+- **Domain B**: Single-channel real fluorescent microscopy images
 
 The model learns to:
 1. Generate realistic fluorescent images from synthetic masks (A → B)
@@ -16,12 +16,20 @@ The model learns to:
 ## Features
 
 - PyTorch implementation of CycleGAN
-- Support for fluorescent image generation
+- **Single-channel image support** (grayscale masks ↔ grayscale fluorescent)
+- Support for fluorescent microscopy image generation
+- Automatic grayscale conversion for input images
 - Customizable network architectures
 - Training and inference scripts
 - Data preprocessing utilities
 - Tensorboard logging
 - Model checkpointing
+
+## Requirements
+
+- **Python**: 3.8 - 3.13 (tested with Python 3.13.7)
+- **CUDA**: Optional but recommended for GPU acceleration
+- **Memory**: At least 8GB RAM (16GB+ recommended for training)
 
 ## Installation
 
@@ -30,13 +38,15 @@ The model learns to:
 git clone https://github.com/yourusername/cycleGAN.git
 cd cycleGAN
 
-# Create virtual environment
+# Create virtual environment (recommended)
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 ```
+
+**Note**: This implementation has been tested with Python 3.13.7 and PyTorch 2.8.0. All dependencies install successfully.
 
 ## Data Structure
 
@@ -49,20 +59,6 @@ data/
 ```
 
 ## Usage
-
-### Training
-```bash
-python train.py --dataroot ./data --name fluorescent_cyclegan --model cycle_gan
-```
-
-### Testing/Inference
-```bash
-python test.py --dataroot ./data --name fluorescent_cyclegan --model cycle_gan --phase test
-```
-
-### Generate from synthetic masks
-```bash
-python generate.py --input_path ./data/testA --output_path ./results --model_path ./checkpoints
 ```
 
 ## Model Architecture
@@ -85,18 +81,6 @@ Modify `config.py` to adjust:
 ## Results
 
 The model generates realistic fluorescent images that maintain structural consistency with input masks while adding realistic fluorescent characteristics.
-
-## Citation
-
-```bibtex
-@inproceedings{zhu2017unpaired,
-  title={Unpaired image-to-image translation using cycle-consistent adversarial networks},
-  author={Zhu, Jun-Yan and Park, Taesung and Isola, Phillip and Efros, Alexei A},
-  booktitle={Proceedings of the IEEE international conference on computer vision},
-  pages={2223--2232},
-  year={2017}
-}
-```
 
 ## License
 

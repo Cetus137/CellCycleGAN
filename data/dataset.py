@@ -48,15 +48,51 @@ class FluorescentDataset(Dataset):
             
         img_path = os.path.join(self.image_dir, self.image_files[idx])
         
-        # Load image
-        image = cv2.imread(img_path)
-        if image is None:
-            # Try with PIL for other formats
-            image = np.array(Image.open(img_path))
-            if len(image.shape) == 2:  # Grayscale
-                image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-        else:
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        try:
+            # Load image - use PIL for TIFF files to handle 32-bit images
+            if img_path.lower().endswith(('.tif', '.tiff')):
+                # Use PIL for TIFF files (handles 32-bit images better)
+                with Image.open(img_path) as pil_img:
+                    # Get image as numpy array first
+                    image = np.array(pil_img)
+                    
+                    # Handle different bit depths
+                    if image.dtype == np.float32 or image.dtype == np.float64:
+                        # 32-bit float images - normalize to 0-255
+                        image = ((image - image.min()) / (image.max() - image.min()) * 255)
+                        image = image.astype(np.uint8)
+                    elif image.dtype == np.uint16:
+                        # 16-bit images - scale down to 8-bit
+                        image = (image / 256).astype(np.uint8)
+                    elif image.dtype == np.uint32:
+                        # 32-bit integer images - scale down to 8-bit
+                        image = (image / (2**24)).astype(np.uint8)
+                    
+                    # Ensure grayscale
+                    if len(image.shape) == 3:
+                        image = np.mean(image, axis=2).astype(np.uint8)
+            else:
+                # Use OpenCV for other formats
+                image = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+                if image is None:
+                    # Fallback to PIL
+                    image = np.array(Image.open(img_path).convert('L'))
+        except Exception as e:
+            print(f"Error loading image {img_path}: {e}")
+            # Create a black image as fallback
+            image = np.zeros((256, 256), dtype=np.uint8)
+        
+        # Ensure image is 2D (H, W) for single channel
+        if len(image.shape) == 3:
+            image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        
+        # Normalize to 0-255 range if needed (for 32-bit images)
+        if image.dtype != np.uint8:
+            # Normalize to 0-255 range
+            image = ((image - image.min()) / (image.max() - image.min()) * 255).astype(np.uint8)
+        
+        # Add channel dimension for albumentations (H, W) -> (H, W, 1)
+        image = np.expand_dims(image, axis=2)
         
         # Apply transforms
         if self.transform:
@@ -111,13 +147,13 @@ def get_transforms(image_size=256, is_train=True):
             A.Resize(height=image_size, width=image_size),
             A.HorizontalFlip(p=0.5),
             A.RandomBrightnessContrast(p=0.2),
-            A.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            A.Normalize(mean=[0.5], std=[0.5]),  # Single channel normalization
             ToTensorV2()
         ]
     else:
         transform_list = [
             A.Resize(height=image_size, width=image_size),
-            A.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
+            A.Normalize(mean=[0.5], std=[0.5]),  # Single channel normalization
             ToTensorV2()
         ]
     

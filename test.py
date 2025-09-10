@@ -80,9 +80,13 @@ def test_cyclegan():
             rec_A_img = tensor_to_image(visuals['rec_A'][0])
             rec_B_img = tensor_to_image(visuals['rec_B'][0])
             
-            # Save individual results
-            Image.fromarray(fake_B_img).save(f'{results_dir}/fake_B/{i:04d}_fake_B.png')
-            Image.fromarray(fake_A_img).save(f'{results_dir}/fake_A/{i:04d}_fake_A.png')
+            # Save individual results (handle grayscale)
+            if len(fake_B_img.shape) == 2:  # Grayscale
+                Image.fromarray(fake_B_img, mode='L').save(f'{results_dir}/fake_B/{i:04d}_fake_B.png')
+                Image.fromarray(fake_A_img, mode='L').save(f'{results_dir}/fake_A/{i:04d}_fake_A.png')
+            else:  # RGB
+                Image.fromarray(fake_B_img).save(f'{results_dir}/fake_B/{i:04d}_fake_B.png')
+                Image.fromarray(fake_A_img).save(f'{results_dir}/fake_A/{i:04d}_fake_A.png')
             
             # Create comparison image
             comparison = np.concatenate([

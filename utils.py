@@ -10,8 +10,14 @@ def tensor_to_image(tensor):
     """Convert a tensor to a numpy image array"""
     # Denormalize from [-1, 1] to [0, 1]
     image = (tensor.cpu().detach().numpy() + 1.0) / 2.0
-    # Transpose from CHW to HWC
-    image = np.transpose(image, (1, 2, 0))
+    
+    # Handle different tensor shapes
+    if len(image.shape) == 3:  # (C, H, W)
+        if image.shape[0] == 1:  # Single channel
+            image = image.squeeze(0)  # Remove channel dimension -> (H, W)
+        else:  # Multi-channel
+            image = np.transpose(image, (1, 2, 0))  # (C, H, W) -> (H, W, C)
+    
     # Clip to valid range and convert to uint8
     image = np.clip(image * 255, 0, 255).astype(np.uint8)
     return image
@@ -37,7 +43,11 @@ def save_images(visuals, save_dir, epoch, step):
     ]
     
     for i, (ax, img, title) in enumerate(zip(axes.flat, images, titles)):
-        ax.imshow(img)
+        # Display grayscale images with appropriate colormap
+        if len(img.shape) == 2:  # Grayscale
+            ax.imshow(img, cmap='gray')
+        else:  # RGB
+            ax.imshow(img)
         ax.set_title(title)
         ax.axis('off')
     
@@ -48,7 +58,11 @@ def save_images(visuals, save_dir, epoch, step):
     # Save individual images
     for name, tensor in visuals.items():
         img = tensor_to_image(tensor[0])
-        Image.fromarray(img).save(f'{save_dir}/{name}_epoch_{epoch+1}_step_{step}.png')
+        # Save grayscale images properly
+        if len(img.shape) == 2:  # Grayscale
+            Image.fromarray(img, mode='L').save(f'{save_dir}/{name}_epoch_{epoch+1}_step_{step}.png')
+        else:  # RGB
+            Image.fromarray(img).save(f'{save_dir}/{name}_epoch_{epoch+1}_step_{step}.png')
 
 
 def setup_logger(log_dir):
@@ -165,20 +179,24 @@ def visualize_results(real_A, fake_B, real_B, fake_A, save_path):
     real_B_img = tensor_to_image(real_B)
     fake_A_img = tensor_to_image(fake_A)
     
+    # Determine if images are grayscale
+    is_grayscale = len(real_A_img.shape) == 2
+    cmap = 'gray' if is_grayscale else None
+    
     # Plot images
-    axes[0, 0].imshow(real_A_img)
+    axes[0, 0].imshow(real_A_img, cmap=cmap)
     axes[0, 0].set_title('Real A (Mask)')
     axes[0, 0].axis('off')
     
-    axes[0, 1].imshow(fake_B_img)
+    axes[0, 1].imshow(fake_B_img, cmap=cmap)
     axes[0, 1].set_title('Fake B (Generated Fluorescent)')
     axes[0, 1].axis('off')
     
-    axes[0, 2].imshow(real_B_img)
+    axes[0, 2].imshow(real_B_img, cmap=cmap)
     axes[0, 2].set_title('Real B (Fluorescent)')
     axes[0, 2].axis('off')
     
-    axes[0, 3].imshow(fake_A_img)
+    axes[0, 3].imshow(fake_A_img, cmap=cmap)
     axes[0, 3].set_title('Fake A (Generated Mask)')
     axes[0, 3].axis('off')
     
@@ -186,11 +204,11 @@ def visualize_results(real_A, fake_B, real_B, fake_A, save_path):
     diff_AB = np.abs(real_A_img.astype(float) - fake_B_img.astype(float))
     diff_BA = np.abs(real_B_img.astype(float) - fake_A_img.astype(float))
     
-    axes[1, 0].imshow(diff_AB.astype(np.uint8))
+    axes[1, 0].imshow(diff_AB.astype(np.uint8), cmap=cmap)
     axes[1, 0].set_title('|Real A - Fake B|')
     axes[1, 0].axis('off')
     
-    axes[1, 1].imshow(diff_BA.astype(np.uint8))
+    axes[1, 1].imshow(diff_BA.astype(np.uint8), cmap=cmap)
     axes[1, 1].set_title('|Real B - Fake A|')
     axes[1, 1].axis('off')
     

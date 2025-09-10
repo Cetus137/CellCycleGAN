@@ -1,10 +1,13 @@
+import torch
+
+
 class Config:
     """Configuration class for CycleGAN training"""
     
     # Data parameters
     dataroot = './data'
-    input_nc = 3  # number of input image channels
-    output_nc = 3  # number of output image channels
+    input_nc = 1  # number of input image channels (single-channel masks)
+    output_nc = 1  # number of output image channels (single-channel fluorescent)
     image_size = 256
     
     # Model parameters
@@ -64,7 +67,3 @@ class Config:
                 setattr(self, key, value)
             else:
                 print(f"Warning: Unknown config parameter '{key}'")
-
-
-# Import torch here to check for CUDA availability
-import torch

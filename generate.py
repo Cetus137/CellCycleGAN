@@ -82,9 +82,15 @@ def generate_from_masks(input_path, output_path, model_path, direction='AtoB'):
             name, ext = os.path.splitext(filename)
             output_filename = f'{name}_generated{ext}'
             
-            Image.fromarray(output_image).save(
-                os.path.join(output_path, output_filename)
-            )
+            # Handle grayscale images
+            if len(output_image.shape) == 2:  # Grayscale
+                Image.fromarray(output_image, mode='L').save(
+                    os.path.join(output_path, output_filename)
+                )
+            else:  # RGB
+                Image.fromarray(output_image).save(
+                    os.path.join(output_path, output_filename)
+                )
     
     print(f'Generation completed! Results saved to {output_path}')
 
