@@ -70,15 +70,25 @@ def generate_from_masks(input_path, output_path, model_path, direction='AtoB'):
         for img_path in tqdm(image_files, desc='Generating'):
             # Load image as grayscale and add channel dimension if needed
 
-            image = np.array(Image.open(img_path).convert('L'))
-            # If image is float32/float64 (normalized 0-1), convert to uint8 0-255
-            if image.dtype in [np.float32, np.float64]:
-                image = (image * 255).clip(0, 255).astype(np.uint8)
-            if image.ndim == 2:
-                image = np.expand_dims(image, axis=2)  # (H, W) -> (H, W, 1)
+            # Robust image loading: handle float32/float64 and uint8
+            pil_img = Image.open(img_path)
+            image_np = np.array(pil_img)
+            # If float, scale to 0-255 and convert to uint8
+            if image_np.dtype in [np.float32, np.float64]:
+                image_np = (image_np * 255).clip(0, 255).astype(np.uint8)
+            # If still not single channel, convert to grayscale
+            if image_np.ndim == 3 and image_np.shape[2] != 1:
+                # Convert to grayscale using PIL
+                image_np = np.array(pil_img.convert('L'))
+            # Add channel dimension if needed
+            if image_np.ndim == 2:
+                image_np = np.expand_dims(image_np, axis=2)
+
+            # Debug: print raw image stats
+            print(f"Raw image stats for {os.path.basename(img_path)}: shape={image_np.shape}, dtype={image_np.dtype}, min={image_np.min()}, max={image_np.max()}, mean={image_np.mean()}")
 
             # Apply transforms (must match training)
-            transformed = transform(image=image)
+            transformed = transform(image=image_np)
             input_tensor = transformed['image'].unsqueeze(0).to(device)  # (1, 1, H, W)
 
             # Debug: print input tensor stats
