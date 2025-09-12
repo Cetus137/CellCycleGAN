@@ -65,7 +65,7 @@ def generate_from_masks(input_path, output_path, model_path, direction='AtoB'):
     with torch.no_grad():
         for img_path in tqdm(image_files, desc='Generating'):
             # Load and preprocess image
-            image = np.array(Image.open(img_path).convert('RGB'))
+            image = np.array(Image.open(img_path).convert('L'))
             
             # Apply transforms
             transformed = transform(image=image)

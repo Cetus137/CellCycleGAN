@@ -65,6 +65,97 @@ def save_images(visuals, save_dir, epoch, step):
             Image.fromarray(img).save(f'{save_dir}/{name}_epoch_{epoch+1}_step_{step}.png')
 
 
+def save_representative_images_as_tiff(visuals, save_dir, epoch, prefix="representative"):
+    """Save comprehensive CycleGAN visual results as TIFF files showing all transformation stages"""
+    os.makedirs(save_dir, exist_ok=True)
+    
+    print(f"Saving representative images to: {save_dir}")
+    print(f"Available visuals: {list(visuals.keys())}")
+    
+    # Define all the CycleGAN stages we want to save
+    stages = {
+        'real_A': 'Original_Mask',
+        'fake_B': 'Generated_Fluorescent_from_Mask', 
+        'rec_A': 'Reconstructed_Mask_from_Generated_Fluorescent',
+        'real_B': 'Original_Fluorescent',
+        'fake_A': 'Generated_Mask_from_Fluorescent',
+        'rec_B': 'Reconstructed_Fluorescent_from_Generated_Mask'
+    }
+    
+    # Save individual TIFF files for each stage
+    for stage_key, stage_name in stages.items():
+        if stage_key in visuals:
+            # Convert tensor to image
+            img = tensor_to_image(visuals[stage_key][0])
+            
+            # Ensure we have the right format for TIFF
+            if len(img.shape) == 2:  # Grayscale
+                # Convert to 16-bit for better quality
+                img_16bit = (img.astype(np.float32) / 255.0 * 65535).astype(np.uint16)
+                pil_img = Image.fromarray(img_16bit, mode='I;16')
+            else:  # RGB (shouldn't happen with our single-channel setup, but just in case)
+                pil_img = Image.fromarray(img)
+            
+            # Save as TIFF
+            filename = f"{prefix}_epoch_{epoch}_{stage_name}.tif"
+            filepath = os.path.join(save_dir, filename)
+            pil_img.save(filepath, format='TIFF')
+            print(f"  Saved: {filename}")
+    
+    # Create a comprehensive comparison image showing all stages
+    if all(key in visuals for key in stages.keys()):
+        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+        fig.suptitle(f'CycleGAN Training Progress - Epoch {epoch}', fontsize=16, fontweight='bold')
+        
+        # Descriptive titles explaining the process
+        titles = [
+            'Real Mask (Input A)',
+            'Generated Fluorescent\n(G_A: Mask→Fluorescent)', 
+            'Reconstructed Mask\n(G_B: Generated→Mask)',
+            'Real Fluorescent (Input B)',
+            'Generated Mask\n(G_B: Fluorescent→Mask)',
+            'Reconstructed Fluorescent\n(G_A: Generated→Fluorescent)'
+        ]
+        
+        stage_keys = ['real_A', 'fake_B', 'rec_A', 'real_B', 'fake_A', 'rec_B']
+        
+        for i, (ax, stage_key, title) in enumerate(zip(axes.flat, stage_keys, titles)):
+            img = tensor_to_image(visuals[stage_key][0])
+            
+            # Display grayscale images with appropriate colormap
+            if len(img.shape) == 2:  # Grayscale
+                im = ax.imshow(img, cmap='gray', vmin=0, vmax=255)
+            else:  # RGB
+                im = ax.imshow(img)
+            
+            ax.set_title(title, fontsize=10, fontweight='bold')
+            ax.axis('off')
+            
+            # Add colorbar for better visualization
+            if len(img.shape) == 2:
+                plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04, shrink=0.8)
+        
+        plt.tight_layout()
+        
+        # Save the comprehensive comparison as high-quality TIFF
+        comparison_filename = f"{prefix}_epoch_{epoch}_complete_pipeline.tif"
+        comparison_filepath = os.path.join(save_dir, comparison_filename)
+        plt.savefig(comparison_filepath, format='tiff', dpi=300, bbox_inches='tight', 
+                   facecolor='white', edgecolor='none')
+        print(f"  Saved comprehensive comparison: {comparison_filename}")
+        
+        # Also save as PNG for easy viewing
+        png_filename = f"{prefix}_epoch_{epoch}_complete_pipeline.png"
+        png_filepath = os.path.join(save_dir, png_filename)
+        plt.savefig(png_filepath, format='png', dpi=300, bbox_inches='tight',
+                   facecolor='white', edgecolor='none')
+        print(f"  Saved PNG version: {png_filename}")
+        
+        plt.close()
+    
+    print(f"Representative images saved successfully for epoch {epoch}!")
+
+
 def setup_logger(log_dir):
     """Setup logging"""
     os.makedirs(log_dir, exist_ok=True)

@@ -1,3 +1,8 @@
+#!/usr/bin/env python3
+"""
+Fast training script for CycleGAN with optimized settings for speed
+"""
+
 import torch
 import torch.nn as nn
 import os
@@ -9,15 +14,15 @@ from tqdm import tqdm
 
 from models.cycle_gan_model import CycleGANModel
 from data.dataset import create_dataloader
-from config import Config
+from config import FastConfig  # Use the fast configuration
 from utils import save_images, save_representative_images_as_tiff, setup_logger
 
 
-def train_cyclegan(args):
-    """Main training function for CycleGAN"""
+def train_cyclegan_fast(args):
+    """Main training function for CycleGAN with speed optimizations"""
     
-    # Initialize configuration with command line arguments
-    config = Config(
+    # Initialize fast configuration with command line arguments
+    config = FastConfig(
         dataroot=args.dataroot,
         name=args.name,
         checkpoints_dir=args.checkpoints_dir,
@@ -32,9 +37,15 @@ def train_cyclegan(args):
         image_size=args.image_size
     )
     
-    # Set device
+    # Set device and enable optimizations
     device = torch.device('cuda:0' if torch.cuda.is_available() and len(config.gpu_ids) > 0 else 'cpu')
     print(f'Using device: {device}')
+    
+    # Enable CUDA optimizations for faster training
+    if torch.cuda.is_available():
+        torch.backends.cudnn.benchmark = True  # Optimize for fixed input sizes
+        torch.backends.cudnn.deterministic = False  # Allow non-deterministic for speed
+        print('✓ CUDA optimizations enabled')
     
     # Create directories
     os.makedirs(config.checkpoints_dir, exist_ok=True)
@@ -45,7 +56,7 @@ def train_cyclegan(args):
     logger = setup_logger(f'{config.checkpoints_dir}/{config.name}')
     writer = SummaryWriter(f'{config.checkpoints_dir}/{config.name}/logs')
     
-    # Create data loaders
+    # Create data loaders with optimizations
     train_loader = create_dataloader(
         config.dataroot, 
         phase='train',
@@ -59,12 +70,23 @@ def train_cyclegan(args):
     os.makedirs(representative_dir, exist_ok=True)
     
     print(f'Training dataset size: {len(train_loader.dataset)}')
+    print(f'Batch size: {config.batch_size}, Effective batches per epoch: {len(train_loader)}')
+    print(f'Image size: {config.image_size}x{config.image_size}')
+    print(f'Generator: {config.netG} with {config.ngf} filters')
+    print(f'Discriminator: {config.netD} with {config.ndf} filters, {config.n_layers_D} layers')
     
     # Initialize model
     model = CycleGANModel(config)
     
-    # Training loop
+    # Enable mixed precision training for speed (if available)
+    scaler = None
+    if torch.cuda.is_available() and hasattr(torch.cuda.amp, 'GradScaler'):
+        scaler = torch.cuda.amp.GradScaler()
+        print('✓ Mixed precision training enabled')
+    
+    # Training loop with optimizations
     total_steps = 0
+    start_time = time.time()
     
     for epoch in range(config.n_epochs + config.n_epochs_decay):
         epoch_start_time = time.time()
@@ -80,15 +102,45 @@ def train_cyclegan(args):
         
         model.train()
         
-        for i, data in enumerate(tqdm(train_loader, desc=f'Epoch {epoch+1}')):
+        # Use tqdm with better formatting for speed monitoring
+        pbar = tqdm(train_loader, desc=f'Epoch {epoch+1}/{config.n_epochs + config.n_epochs_decay}')
+        
+        for i, data in enumerate(pbar):
             total_steps += config.batch_size
             epoch_iter += config.batch_size
             
-            # Set input and optimize
+            # Set input and optimize with mixed precision if available
             model.set_input(data)
-            model.optimize_parameters()
             
-            # Logging
+            if scaler is not None:
+                # Mixed precision training
+                with torch.cuda.amp.autocast():
+                    model.forward()
+                    model.backward_G()
+                scaler.scale(model.loss_G).backward()
+                scaler.step(model.optimizer_G)
+                
+                with torch.cuda.amp.autocast():
+                    model.backward_D_A()
+                    model.backward_D_B()
+                scaler.scale(model.loss_D_A).backward()
+                scaler.scale(model.loss_D_B).backward()
+                scaler.step(model.optimizer_D)
+                scaler.update()
+                
+                model.optimizer_G.zero_grad()
+                model.optimizer_D.zero_grad()
+            else:
+                # Standard training
+                model.optimize_parameters()
+            
+            # Update progress bar with current losses
+            if i % 10 == 0:  # Update every 10 batches to avoid slowdown
+                losses = model.get_current_losses()
+                loss_str = ' | '.join([f'{k}: {v:.3f}' for k, v in list(losses.items())[:4]])  # Show first 4 losses
+                pbar.set_postfix_str(loss_str)
+            
+            # Logging (less frequent for speed)
             if total_steps % config.print_freq == 0:
                 losses = model.get_current_losses()
                 
@@ -101,7 +153,7 @@ def train_cyclegan(args):
                 print(f'Epoch: {epoch+1}, Step: {total_steps}, {loss_str}')
                 logger.info(f'Epoch: {epoch+1}, Step: {total_steps}, {loss_str}')
             
-            # Save images
+            # Save images (less frequent for speed)
             if total_steps % config.display_freq == 0:
                 visuals = model.get_current_visuals()
                 save_images(visuals, f'{config.results_dir}/{config.name}', epoch, total_steps)
@@ -129,14 +181,21 @@ def train_cyclegan(args):
             model.train()
         
         epoch_time = time.time() - epoch_start_time
-        print(f'End of epoch {epoch+1} / {config.n_epochs + config.n_epochs_decay} \t Time Taken: {epoch_time:.2f} sec')
+        total_time = time.time() - start_time
+        avg_epoch_time = total_time / (epoch + 1)
+        remaining_epochs = config.n_epochs + config.n_epochs_decay - (epoch + 1)
+        eta = remaining_epochs * avg_epoch_time
+        
+        print(f'End of epoch {epoch+1} / {config.n_epochs + config.n_epochs_decay}')
+        print(f'  Time: {epoch_time:.2f}s | Avg: {avg_epoch_time:.2f}s/epoch | ETA: {eta/3600:.1f}h')
     
     writer.close()
-    print('Training completed!')
+    total_training_time = time.time() - start_time
+    print(f'Training completed in {total_training_time/3600:.2f} hours!')
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train CycleGAN for fluorescent image generation')
+    parser = argparse.ArgumentParser(description='Train CycleGAN for fluorescent image generation (FAST)')
     
     # Data arguments
     parser.add_argument('--dataroot', type=str, default='./data',
@@ -151,29 +210,29 @@ def main():
                         help='Directory to save training results')
     parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints',
                         help='Directory to save model checkpoints')
-    parser.add_argument('--name', type=str, default='fluorescent_cyclegan',
+    parser.add_argument('--name', type=str, default='fluorescent_cyclegan_fast',
                         help='Name of the experiment (creates subdirectories)')
     
-    # Training arguments
-    parser.add_argument('--n_epochs', type=int, default=100,
-                        help='Number of epochs with initial learning rate')
-    parser.add_argument('--n_epochs_decay', type=int, default=100,
-                        help='Number of epochs to linearly decay learning rate to zero')
-    parser.add_argument('--batch_size', type=int, default=1,
-                        help='Input batch size')
-    parser.add_argument('--lr', type=float, default=0.0002,
-                        help='Initial learning rate for Adam')
-    parser.add_argument('--image_size', type=int, default=256,
-                        help='Scale images to this size')
+    # Training arguments - Optimized defaults for speed
+    parser.add_argument('--n_epochs', type=int, default=50,
+                        help='Number of epochs with initial learning rate (reduced for speed)')
+    parser.add_argument('--n_epochs_decay', type=int, default=50,
+                        help='Number of epochs to linearly decay learning rate to zero (reduced for speed)')
+    parser.add_argument('--batch_size', type=int, default=4,
+                        help='Input batch size (increased for speed)')
+    parser.add_argument('--lr', type=float, default=0.0003,
+                        help='Initial learning rate for Adam (increased for faster convergence)')
+    parser.add_argument('--image_size', type=int, default=128,
+                        help='Scale images to this size (reduced for speed)')
     
     # Saving and logging arguments
-    parser.add_argument('--save_epoch_freq', type=int, default=5,
+    parser.add_argument('--save_epoch_freq', type=int, default=10,
                         help='Frequency of saving checkpoints (in epochs)')
     parser.add_argument('--save_images_freq', type=int, default=10,
                         help='Frequency of saving representative images (in epochs)')
-    parser.add_argument('--display_freq', type=int, default=400,
+    parser.add_argument('--display_freq', type=int, default=200,
                         help='Frequency of displaying/saving images during training (in iterations)')
-    parser.add_argument('--print_freq', type=int, default=100,
+    parser.add_argument('--print_freq', type=int, default=50,
                         help='Frequency of printing training losses (in iterations)')
     
     args = parser.parse_args()
@@ -203,15 +262,24 @@ def main():
         if len(image_files) == 0:
             print(f"Warning: No images found in {dir_path}")
     
-    print(f"Starting training with:")
-    print(f"  Data directory: {args.dataroot}")
-    print(f"  Results directory: {args.results_dir}")
-    print(f"  Checkpoints directory: {args.checkpoints_dir}")
-    print(f"  Experiment name: {args.name}")
-    print(f"  Epochs: {args.n_epochs} + {args.n_epochs_decay} decay")
-    print(f"  Representative images saved every {args.save_images_freq} epochs")
+    print("=== FAST CYCLEGAN TRAINING ===")
+    print(f"🚀 Speed optimizations enabled:")
+    print(f"  - Reduced image size: {args.image_size}x{args.image_size}")
+    print(f"  - Increased batch size: {args.batch_size}")
+    print(f"  - Fewer epochs: {args.n_epochs} + {args.n_epochs_decay} decay")
+    print(f"  - Lighter architecture: resnet_6blocks, 32 filters")
+    print(f"  - Reduced loss weights for faster convergence")
+    print(f"  - CUDA optimizations enabled")
+    print(f"  - Mixed precision training (if available)")
+    print("")
+    print(f"📁 Directories:")
+    print(f"  Data: {args.dataroot}")
+    print(f"  Results: {args.results_dir}")
+    print(f"  Checkpoints: {args.checkpoints_dir}")
+    print(f"  Experiment: {args.name}")
+    print("")
     
-    train_cyclegan(args)
+    train_cyclegan_fast(args)
 
 
 if __name__ == '__main__':
