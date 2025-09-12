@@ -48,6 +48,10 @@ def generate_from_masks(input_path, output_path, model_path, direction='AtoB'):
         print("Loaded generator B->A (fluorescent to masks)")
     
     generator.eval()
+
+    # Print first few weights of the generator to confirm checkpoint loaded
+    first_weight = next(generator.parameters()).data.cpu().numpy().flatten()
+    print(f"First 10 generator weights: {first_weight[:10]}")
     
     # Get transforms (must match training exactly)
     transform = get_transforms(config.image_size, is_train=False)
@@ -73,8 +77,14 @@ def generate_from_masks(input_path, output_path, model_path, direction='AtoB'):
             transformed = transform(image=image)
             input_tensor = transformed['image'].unsqueeze(0).to(device)  # (1, 1, H, W)
 
+            # Debug: print input tensor stats
+            print(f"Input tensor stats for {os.path.basename(img_path)}: shape={input_tensor.shape}, min={input_tensor.min().item():.3f}, max={input_tensor.max().item():.3f}, mean={input_tensor.mean().item():.3f}")
+
             # Generate output
             output_tensor = generator(input_tensor)
+
+            # Debug: print output tensor stats
+            print(f"Output tensor stats: shape={output_tensor.shape}, min={output_tensor.min().item():.3f}, max={output_tensor.max().item():.3f}, mean={output_tensor.mean().item():.3f}")
 
             # Convert to image using the same function as training
             output_image = tensor_to_image(output_tensor[0])
