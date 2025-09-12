@@ -69,7 +69,11 @@ def generate_from_masks(input_path, output_path, model_path, direction='AtoB'):
     with torch.no_grad():
         for img_path in tqdm(image_files, desc='Generating'):
             # Load image as grayscale and add channel dimension if needed
+
             image = np.array(Image.open(img_path).convert('L'))
+            # If image is float32/float64 (normalized 0-1), convert to uint8 0-255
+            if image.dtype in [np.float32, np.float64]:
+                image = (image * 255).clip(0, 255).astype(np.uint8)
             if image.ndim == 2:
                 image = np.expand_dims(image, axis=2)  # (H, W) -> (H, W, 1)
 
