@@ -49,49 +49,51 @@ def generate_from_masks(input_path, output_path, model_path, direction='AtoB'):
     
     generator.eval()
     
-    # Get transforms
+    # Get transforms (must match training exactly)
     transform = get_transforms(config.image_size, is_train=False)
-    
+
     # Get all image files
     image_extensions = ['*.png', '*.jpg', '*.jpeg', '*.tif', '*.tiff']
     image_files = []
     for ext in image_extensions:
         image_files.extend(glob.glob(os.path.join(input_path, ext)))
         image_files.extend(glob.glob(os.path.join(input_path, ext.upper())))
-    
+
     print(f'Found {len(image_files)} images to process')
-    
+
     # Generate images
     with torch.no_grad():
         for img_path in tqdm(image_files, desc='Generating'):
-            # Load and preprocess image
+            # Load image as grayscale and add channel dimension if needed
             image = np.array(Image.open(img_path).convert('L'))
-            
-            # Apply transforms
+            if image.ndim == 2:
+                image = np.expand_dims(image, axis=2)  # (H, W) -> (H, W, 1)
+
+            # Apply transforms (must match training)
             transformed = transform(image=image)
-            input_tensor = transformed['image'].unsqueeze(0).to(device)
-            
+            input_tensor = transformed['image'].unsqueeze(0).to(device)  # (1, 1, H, W)
+
             # Generate output
             output_tensor = generator(input_tensor)
-            
-            # Convert to image
+
+            # Convert to image using the same function as training
             output_image = tensor_to_image(output_tensor[0])
-            
+
             # Save result
             filename = os.path.basename(img_path)
             name, ext = os.path.splitext(filename)
             output_filename = f'{name}_generated{ext}'
-            
-            # Handle grayscale images
-            if len(output_image.shape) == 2:  # Grayscale
+
+            # Save as grayscale if single channel, else RGB
+            if len(output_image.shape) == 2:
                 Image.fromarray(output_image, mode='L').save(
                     os.path.join(output_path, output_filename)
                 )
-            else:  # RGB
+            else:
                 Image.fromarray(output_image).save(
                     os.path.join(output_path, output_filename)
                 )
-    
+
     print(f'Generation completed! Results saved to {output_path}')
 
 
