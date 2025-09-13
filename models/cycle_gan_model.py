@@ -6,39 +6,73 @@ from .networks import define_G, define_D, init_net
 from .losses import GANLoss, ImagePool
 # Spatial correspondence loss for boundary preservation
 class SpatialCorrespondenceLoss:
-    """Simple spatial loss to enforce boundary correspondence"""
+    """Distance-based spatial loss for gentle boundary guidance"""
     
-    def __init__(self, lambda_spatial=1.0):
+    def __init__(self, lambda_spatial=0.05):  # Much lower weight
         self.lambda_spatial = lambda_spatial
     
-    def sobel_edge_loss(self, pred, target):
-        """Compute gentle edge-aware loss that encourages boundary alignment without forcing exact replication"""
-        # Sobel filters for edge detection
-        sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(pred.device)
-        sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(pred.device)
+    def create_distance_guidance(self, mask):
+        """Create distance-based guidance maps from masks"""
+        import cv2
+        import numpy as np
         
-        # Apply Sobel filters
-        pred_edge_x = F.conv2d(pred, sobel_x, padding=1)
-        pred_edge_y = F.conv2d(pred, sobel_y, padding=1)
-        target_edge_x = F.conv2d(target, sobel_x, padding=1)
-        target_edge_y = F.conv2d(target, sobel_y, padding=1)
+        # Convert to numpy for OpenCV processing
+        mask_np = mask.detach().cpu().numpy()
+        batch_size = mask_np.shape[0]
         
-        # Compute edge magnitudes
-        pred_edges = torch.sqrt(pred_edge_x**2 + pred_edge_y**2 + 1e-8)
-        target_edges = torch.sqrt(target_edge_x**2 + target_edge_y**2 + 1e-8)
+        guidance_maps = []
+        for i in range(batch_size):
+            # Get single channel mask
+            single_mask = mask_np[i, 0]
+            
+            # Normalize to 0-255 and convert to uint8
+            mask_norm = (single_mask - single_mask.min()) / (single_mask.max() - single_mask.min() + 1e-8)
+            mask_uint8 = (mask_norm * 255).astype(np.uint8)
+            
+            # Create binary mask from threshold
+            _, binary = cv2.threshold(mask_uint8, 127, 255, cv2.THRESH_BINARY)
+            
+            # Compute distance transform from boundaries
+            distance_inside = cv2.distanceTransform(binary, cv2.DIST_L2, 5)
+            distance_outside = cv2.distanceTransform(255 - binary, cv2.DIST_L2, 5)
+            
+            # Create signed distance (positive inside, negative outside)
+            signed_distance = distance_inside - distance_outside
+            
+            # Normalize to create gentle guidance field
+            if np.abs(signed_distance).max() > 0:
+                guidance = signed_distance / (np.abs(signed_distance).max() + 1e-8)
+            else:
+                guidance = np.zeros_like(signed_distance)
+            
+            guidance_maps.append(guidance)
         
-        # Use a gentler loss that encourages correlation rather than exact matching
-        # Normalize edges to [0,1] to make comparison more stable
-        pred_edges_norm = pred_edges / (pred_edges.max() + 1e-8)
-        target_edges_norm = target_edges / (target_edges.max() + 1e-8)
-        
-        # Use correlation-based loss instead of MSE for gentler constraint
-        return 1.0 - F.cosine_similarity(pred_edges_norm.flatten(), target_edges_norm.flatten(), dim=0).mean()
+        # Convert back to tensor
+        guidance_tensor = torch.from_numpy(np.stack(guidance_maps)).float().unsqueeze(1).to(mask.device)
+        return guidance_tensor
+    
+    def gentle_structure_loss(self, pred, target_mask):
+        """Compute very gentle structural guidance loss"""
+        try:
+            # Create guidance fields from mask
+            target_guidance = self.create_distance_guidance(target_mask)
+            pred_guidance = self.create_distance_guidance(pred)
+            
+            # Only penalize major structural deviations, not fine details
+            guidance_diff = pred_guidance - target_guidance
+            
+            # Use smooth L1 loss which is more forgiving than MSE
+            loss = F.smooth_l1_loss(pred_guidance, target_guidance, reduction='mean')
+            
+            return loss
+        except Exception as e:
+            # Fallback: very weak correlation loss
+            return F.mse_loss(pred, target_mask) * 0.001
     
     def __call__(self, real_mask, fake_fluor):
-        """Compute spatial correspondence loss"""
-        edge_loss = self.sobel_edge_loss(fake_fluor, real_mask)
-        return self.lambda_spatial * edge_loss
+        """Compute very gentle spatial correspondence loss"""
+        structure_loss = self.gentle_structure_loss(fake_fluor, real_mask)
+        return self.lambda_spatial * structure_loss
 import torch.nn as nn
 
 
@@ -93,8 +127,7 @@ class CycleGANModel(nn.Module):
             self.criterionGAN = GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
-            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=0.05)  # spatial correspondence loss (reduced weight)
-            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=getattr(opt, 'lambda_spatial', 5.0))
+            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=0.02)  # very gentle spatial guidance
             
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
