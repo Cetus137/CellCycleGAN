@@ -12,7 +12,7 @@ class SpatialCorrespondenceLoss:
         self.lambda_spatial = lambda_spatial
     
     def sobel_edge_loss(self, pred, target):
-        """Compute edge-aware loss using Sobel operators"""
+        """Compute gentle edge-aware loss that encourages boundary alignment without forcing exact replication"""
         # Sobel filters for edge detection
         sobel_x = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(pred.device)
         sobel_y = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]], dtype=torch.float32).view(1, 1, 3, 3).to(pred.device)
@@ -27,7 +27,13 @@ class SpatialCorrespondenceLoss:
         pred_edges = torch.sqrt(pred_edge_x**2 + pred_edge_y**2 + 1e-8)
         target_edges = torch.sqrt(target_edge_x**2 + target_edge_y**2 + 1e-8)
         
-        return F.mse_loss(pred_edges, target_edges)
+        # Use a gentler loss that encourages correlation rather than exact matching
+        # Normalize edges to [0,1] to make comparison more stable
+        pred_edges_norm = pred_edges / (pred_edges.max() + 1e-8)
+        target_edges_norm = target_edges / (target_edges.max() + 1e-8)
+        
+        # Use correlation-based loss instead of MSE for gentler constraint
+        return 1.0 - F.cosine_similarity(pred_edges_norm.flatten(), target_edges_norm.flatten(), dim=0).mean()
     
     def __call__(self, real_mask, fake_fluor):
         """Compute spatial correspondence loss"""
@@ -87,7 +93,7 @@ class CycleGANModel(nn.Module):
             self.criterionGAN = GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
-            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=0.5)  # spatial correspondence loss
+            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=0.05)  # spatial correspondence loss (reduced weight)
             self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=getattr(opt, 'lambda_spatial', 5.0))
             
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
@@ -177,9 +183,9 @@ class CycleGANModel(nn.Module):
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
         
-        # Spatial correspondence loss to preserve mask boundaries
+        # Spatial correspondence loss to preserve mask boundaries (only mask -> fluor direction)
         self.loss_spatial_A = self.criterionSpatial(self.real_A, self.fake_B)  # mask -> fluor correspondence
-        self.loss_spatial_B = self.criterionSpatial(self.real_B, self.fake_A)  # fluor -> mask correspondence
+        self.loss_spatial_B = 0  # disable fluor -> mask spatial loss to allow more freedom
         
         # combined loss and calculate gradients
         self.loss_G = (self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + 
