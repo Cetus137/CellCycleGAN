@@ -63,20 +63,46 @@ def train_cyclegan(args):
     # Initialize model
     model = CycleGANModel(config)
     
-    # Training loop
+    # Load checkpoint if specified
+    start_epoch = 0
     total_steps = 0
     
-    for epoch in range(config.n_epochs + config.n_epochs_decay):
+    if args.continue_train:
+        checkpoint_path = None
+        
+        # Determine which checkpoint to load
+        if args.load_checkpoint:
+            checkpoint_path = args.load_checkpoint
+        elif args.load_epoch:
+            checkpoint_path = f'{config.checkpoints_dir}/{config.name}/epoch_{args.load_epoch}.pth'
+        else:
+            # Try to load latest checkpoint automatically
+            checkpoint_path = f'{config.checkpoints_dir}/{config.name}/latest.pth'
+        
+        if checkpoint_path and os.path.exists(checkpoint_path):
+            print(f'Loading checkpoint from {checkpoint_path}...')
+            start_epoch = model.load_networks(checkpoint_path)
+            total_steps = start_epoch * len(train_loader) * config.batch_size
+            print(f'Resumed training from epoch {start_epoch}, total steps: {total_steps}')
+        else:
+            print(f'Warning: Checkpoint file not found: {checkpoint_path}')
+            print('Starting training from scratch...')
+    
+    # Training loop
+    
+    for epoch in range(start_epoch, config.n_epochs + config.n_epochs_decay):
         epoch_start_time = time.time()
         epoch_iter = 0
         
-        # Update learning rate
+        # Update learning rate (accounting for resumed training)
         if epoch > config.n_epochs:
             lr = config.lr * (config.n_epochs + config.n_epochs_decay - epoch) / config.n_epochs_decay
             for param_group in model.optimizer_G.param_groups:
                 param_group['lr'] = lr
             for param_group in model.optimizer_D.param_groups:
                 param_group['lr'] = lr
+            if epoch == start_epoch and args.continue_train:
+                print(f'Resumed with decayed learning rate: {lr:.6f}')
         
         model.train()
         
@@ -176,6 +202,14 @@ def main():
     parser.add_argument('--print_freq', type=int, default=100,
                         help='Frequency of printing training losses (in iterations)')
     
+    # Checkpoint arguments
+    parser.add_argument('--continue_train', action='store_true',
+                        help='Continue training from a checkpoint')
+    parser.add_argument('--load_checkpoint', type=str, default=None,
+                        help='Path to checkpoint file to load from (if not specified, loads latest.pth)')
+    parser.add_argument('--load_epoch', type=int, default=None,
+                        help='Load specific epoch checkpoint (e.g., epoch_50.pth)')
+    
     args = parser.parse_args()
     
     # If mask_dir and fluorescent_dir are provided, prepare the data first
@@ -210,6 +244,14 @@ def main():
     print(f"  Experiment name: {args.name}")
     print(f"  Epochs: {args.n_epochs} + {args.n_epochs_decay} decay")
     print(f"  Representative images saved every {args.save_images_freq} epochs")
+    if args.continue_train:
+        print(f"  Resume training: {'Yes' if args.continue_train else 'No'}")
+        if args.load_checkpoint:
+            print(f"  Checkpoint: {args.load_checkpoint}")
+        elif args.load_epoch:
+            print(f"  Load epoch: {args.load_epoch}")
+        else:
+            print(f"  Will try to load: latest.pth")
     
     train_cyclegan(args)
 

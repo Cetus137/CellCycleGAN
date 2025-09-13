@@ -31,10 +31,10 @@ class FastConfig:
     gan_mode = 'lsgan'
     pool_size = 25  # Reduced buffer size
     
-    # Loss weights - Reduced for faster convergence
-    lambda_A = 5.0  # Reduced from 10.0 - less strict cycle consistency
-    lambda_B = 5.0  # Reduced from 10.0
-    lambda_identity = 0.1  # Reduced from 0.5 - less identity constraint
+    # Loss weights - Adjusted for better structure preservation while maintaining speed
+    lambda_A = 15.0  # Increased for better structure preservation
+    lambda_B = 15.0  # Increased for better structure preservation
+    lambda_identity = 1.0  # Increased to preserve input structure
     
     # Training schedule - Fewer epochs
     n_epochs = 50  # Reduced from 100
@@ -99,10 +99,10 @@ class Config:
     gan_mode = 'lsgan'  # GAN loss type
     pool_size = 50  # size of image buffer for discriminator
     
-    # Loss weights
-    lambda_A = 10.0  # weight for cycle loss (A -> B -> A)
-    lambda_B = 10.0  # weight for cycle loss (B -> A -> B)
-    lambda_identity = 0.5  # weight for identity loss
+    # Loss weights - Adjusted for better structure preservation
+    lambda_A = 20.0  # weight for cycle loss (A -> B -> A) - INCREASED for better structure
+    lambda_B = 20.0  # weight for cycle loss (B -> A -> B) - INCREASED for better structure
+    lambda_identity = 2.0  # weight for identity loss - INCREASED to preserve input structure
     
     # Training schedule
     n_epochs = 100  # number of epochs with the initial learning rate
