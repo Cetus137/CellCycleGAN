@@ -52,22 +52,29 @@ class SpatialCorrespondenceLoss:
         return guidance_tensor
     
     def gentle_structure_loss(self, pred, target_mask):
-        """Compute very gentle structural guidance loss"""
+        """Compute structural guidance loss with boundary focus"""
         try:
             # Create guidance fields from mask
             target_guidance = self.create_distance_guidance(target_mask)
             pred_guidance = self.create_distance_guidance(pred)
             
-            # Only penalize major structural deviations, not fine details
-            guidance_diff = pred_guidance - target_guidance
+            # Distance transform loss for overall structure
+            structure_loss = F.smooth_l1_loss(pred_guidance, target_guidance, reduction='mean')
             
-            # Use smooth L1 loss which is more forgiving than MSE
-            loss = F.smooth_l1_loss(pred_guidance, target_guidance, reduction='mean')
+            # Add boundary-focused component - penalize when fluorescent signal doesn't align with mask boundaries
+            # Create binary masks for boundary detection
+            target_binary = (target_mask > 0.5).float()
+            pred_binary = (pred > 0.5).float()
             
-            return loss
+            # Simple boundary alignment: encourage fluorescent signal to be higher inside mask regions
+            boundary_alignment = F.mse_loss(pred * target_binary, target_binary * 0.7)  # Encourage ~70% intensity in mask regions
+            
+            return structure_loss + 0.5 * boundary_alignment
+            
         except Exception as e:
-            # Fallback: very weak correlation loss
-            return F.mse_loss(pred, target_mask) * 0.001
+            # Fallback: boundary alignment loss only
+            target_binary = (target_mask > 0.5).float()
+            return F.mse_loss(pred * target_binary, target_binary * 0.5) * 0.5
     
     def __call__(self, real_mask, fake_fluor):
         """Compute very gentle spatial correspondence loss"""
@@ -127,7 +134,7 @@ class CycleGANModel(nn.Module):
             self.criterionGAN = GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
-            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=0.02)  # very gentle spatial guidance
+            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=1.0)  # stronger spatial guidance
             
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
