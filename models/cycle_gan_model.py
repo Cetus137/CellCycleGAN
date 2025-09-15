@@ -94,10 +94,19 @@ class SpatialCorrespondenceLoss:
         return outside_mask_penalty + inside_mask_reward
     
     def __call__(self, real_mask, fake_fluor):
-        """Compute stronger spatial correspondence loss"""
+        """Compute strong spatial correspondence loss for direct correlation"""
+        # Direct correlation loss: fluorescent intensity should follow mask pattern
+        mask_binary = (real_mask > 0.5).float()  # Binary mask regions
+        
+        # Primary loss: fluorescent signal should be high inside mask, low outside
+        inside_loss = F.mse_loss(fake_fluor * mask_binary, mask_binary * 0.8)  # Target 80% intensity inside
+        outside_loss = F.mse_loss(fake_fluor * (1 - mask_binary), torch.zeros_like(fake_fluor) * (1 - mask_binary))  # Target low intensity outside
+        
+        # Boundary preservation loss
         gentle_loss = self.gentle_structure_loss(fake_fluor, real_mask)
-        alignment_loss = self.structural_alignment_loss(fake_fluor, real_mask)
-        total_loss = gentle_loss + 2.0 * alignment_loss  # Emphasize direct alignment
+        
+        # Combine losses with emphasis on direct correlation
+        total_loss = 3.0 * inside_loss + 2.0 * outside_loss + gentle_loss
         return self.lambda_spatial * total_loss
 import torch.nn as nn
 
@@ -153,7 +162,7 @@ class CycleGANModel(nn.Module):
             self.criterionGAN = GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
-            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=2.0)  # stronger spatial correspondence loss
+            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=1.0)  # strong spatial correspondence loss for correlation
             
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
@@ -242,9 +251,9 @@ class CycleGANModel(nn.Module):
         # Backward cycle loss || G_A(G_B(B)) - B||
         self.loss_cycle_B = self.criterionCycle(self.rec_B, self.real_B) * lambda_B
         
-        # Spatial correspondence loss to preserve mask boundaries (only mask -> fluor direction)
-        self.loss_spatial_A = self.criterionSpatial(self.real_A, self.fake_B)  # mask -> fluor correspondence
-        self.loss_spatial_B = 0  # disable fluor -> mask spatial loss to allow more freedom
+        # Spatial correspondence loss to enforce strong correlation
+        self.loss_spatial_A = self.criterionSpatial(self.real_A, self.fake_B)  # mask -> fluor correspondence (primary)
+        self.loss_spatial_B = self.criterionSpatial(self.real_B, self.fake_A) * 0.5  # fluor -> mask correspondence (secondary)
         
         # combined loss and calculate gradients
         self.loss_G = (self.loss_G_A + self.loss_G_B + self.loss_cycle_A + self.loss_cycle_B + 
