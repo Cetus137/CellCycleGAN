@@ -30,7 +30,8 @@ def test_spatial_loss():
         dummy_B = torch.randn(batch_size, 1, 256, 256)  # fluorescent
         
         # Set input
-        input_data = {'A': dummy_A, 'B': dummy_B}
+        # Test set_input and forward
+        input_data = {'A': dummy_A, 'B': dummy_B, 'A_paths': ['test'], 'B_paths': ['test']}
         model.set_input(input_data)
         print("✓ Input set successfully")
         

@@ -32,8 +32,8 @@ class FastConfig:
     pool_size = 25  # Reduced buffer size
     
     # Loss weights - Adjusted for better structure preservation while maintaining speed
-    lambda_A = 15.0  # Increased for better structure preservation
-    lambda_B = 15.0  # Increased for better structure preservation
+    lambda_A = 5.0  # Reduced to allow spatial loss to dominate
+    lambda_B = 5.0  # Reduced to allow spatial loss to dominate
     lambda_identity = 1.0  # Increased to preserve input structure
     
     # Training schedule - Fewer epochs
@@ -100,8 +100,8 @@ class Config:
     pool_size = 50  # size of image buffer for discriminator
     
     # Loss weights - Adjusted for better structure preservation
-    lambda_A = 20.0  # weight for cycle loss (A -> B -> A) - INCREASED for better structure
-    lambda_B = 20.0  # weight for cycle loss (B -> A -> B) - INCREASED for better structure
+    lambda_A = 5.0  # weight for cycle loss (A -> B -> A) - REDUCED to allow spatial loss to dominate
+    lambda_B = 5.0  # weight for cycle loss (B -> A -> B) - REDUCED to allow spatial loss to dominate
     lambda_identity = 2.0  # weight for identity loss - INCREASED to preserve input structure
     
     # Training schedule

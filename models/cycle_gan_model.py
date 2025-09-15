@@ -76,10 +76,29 @@ class SpatialCorrespondenceLoss:
             target_binary = (target_mask > 0.5).float()
             return F.mse_loss(pred * target_binary, target_binary * 0.5) * 0.5
     
+    def structural_alignment_loss(self, pred, target):
+        """Direct structural alignment - bright areas should align with mask regions"""
+        # Normalize both to [0,1]
+        pred_norm = (pred - pred.min()) / (pred.max() - pred.min() + 1e-8)
+        target_norm = (target - target.min()) / (target.max() - target.min() + 1e-8)
+        
+        # Create binary masks
+        target_mask = (target_norm > 0.5).float()
+        
+        # Penalize bright fluorescent outside mask regions
+        outside_mask_penalty = torch.mean(pred_norm * (1 - target_mask))
+        
+        # Encourage bright fluorescent inside mask regions
+        inside_mask_reward = torch.mean((1 - pred_norm) * target_mask)
+        
+        return outside_mask_penalty + inside_mask_reward
+    
     def __call__(self, real_mask, fake_fluor):
-        """Compute very gentle spatial correspondence loss"""
-        structure_loss = self.gentle_structure_loss(fake_fluor, real_mask)
-        return self.lambda_spatial * structure_loss
+        """Compute stronger spatial correspondence loss"""
+        gentle_loss = self.gentle_structure_loss(fake_fluor, real_mask)
+        alignment_loss = self.structural_alignment_loss(fake_fluor, real_mask)
+        total_loss = gentle_loss + 2.0 * alignment_loss  # Emphasize direct alignment
+        return self.lambda_spatial * total_loss
 import torch.nn as nn
 
 
@@ -134,7 +153,7 @@ class CycleGANModel(nn.Module):
             self.criterionGAN = GANLoss(opt.gan_mode).to(self.device)  # define GAN loss.
             self.criterionCycle = torch.nn.L1Loss()
             self.criterionIdt = torch.nn.L1Loss()
-            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=1.0)  # stronger spatial guidance
+            self.criterionSpatial = SpatialCorrespondenceLoss(lambda_spatial=2.0)  # stronger spatial correspondence loss
             
             # initialize optimizers; schedulers will be automatically created by function <BaseModel.setup>.
             self.optimizer_G = torch.optim.Adam(itertools.chain(self.netG_A.parameters(), self.netG_B.parameters()), lr=opt.lr, betas=(opt.beta1, 0.999))
