@@ -106,7 +106,7 @@ class SpatialCorrespondenceLoss:
         gentle_loss = self.gentle_structure_loss(fake_fluor, real_mask)
         
         # Combine losses with emphasis on direct correlation
-        total_loss = 3.0 * inside_loss + 2.0 * outside_loss + gentle_loss
+        total_loss = 3.0 * inside_loss + 2.0 * outside_loss + 0.5 * gentle_loss  # reduced structural component
         return self.lambda_spatial * total_loss
 import torch.nn as nn
 
