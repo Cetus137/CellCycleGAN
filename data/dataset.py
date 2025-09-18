@@ -63,7 +63,8 @@ class FluorescentDataset(Dataset):
                         image = image.astype(np.uint8)
                     elif image.dtype == np.uint16:
                         # 16-bit images - scale down to 8-bit
-                        image = (image / 256).astype(np.uint8)
+                        original_min, original_max = image.min(), image.max()
+                        image = ((image - original_min) * (255.0 / (original_max - original_min))).astype(np.uint8)
                     elif image.dtype == np.uint32:
                         # 32-bit integer images - scale down to 8-bit
                         image = (image / (2**24)).astype(np.uint8)
